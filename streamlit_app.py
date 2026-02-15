@@ -56,44 +56,19 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 3. CHARGEMENT ET NETTOYAGE DES DONNÉES ---
+from streamlit_gsheets import GSheetsConnection
+
 @st.cache_data(ttl=600)
 def load_data():
-    # Note : Remplacer par la connexion gsheets finale
-    # Pour l'instant, on simule la lecture
     try:
-        # Code de connexion GSheets (exemple)
-        # conn = st.connection("gsheets", type=GSheetsConnection)
-        # df = conn.read(spreadsheet="URL_DE_VOTRE_SHEET")
-        
-        # Simulation de structure pour que l'app s'affiche
-        df = pd.DataFrame() # À remplacer par votre lecture réelle
+        # Création de la connexion en utilisant les Secrets
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        # Lecture de la feuille (mettez le nom exact de votre onglet Excel)
+        df = conn.read(worksheet="SUIVI COMMANDES EN COURS")
         return df
     except Exception as e:
         st.error(f"Erreur de connexion : {e}")
         return pd.DataFrame()
-
-def clean_data(df):
-    if df.empty: return df
-    # Nettoyage des colonnes (Standardisation)
-    df.columns = df.columns.astype(str).str.upper().str.strip()
-    
-    # Nettoyage Montant HT
-    def c_num(x):
-        if pd.isna(x): return 0.0
-        s = str(x).replace('€','').replace(' ','').replace('\xa0','').replace(',','.')
-        try: return float(s)
-        except: return 0.0
-
-    df['CA_CLEAN'] = df['MONTANT HT COMMANDE'].apply(c_num)
-    df['DATE_CMD'] = pd.to_datetime(df['DATE DE LA COMMANDE'], errors='coerce', dayfirst=True)
-    df['DATE_POSE'] = pd.to_datetime(df['DATE PREVUE DELAI'], errors='coerce', dayfirst=True)
-    
-    # Exercice Comptable (Août à Juillet)
-    df['Exercice'] = df['DATE_CMD'].apply(lambda x: f"{x.year}-{x.year+1}" if x.month >= 8 else f"{x.year-1}-{x.year}")
-    df['Mois_Cmd'] = df['DATE_CMD'].dt.strftime('%m-%B')
-    df['Mois_Pose'] = df['DATE_POSE'].dt.strftime('%m-%B')
-    
-    return df
 
 # --- 4. BARRE LATÉRALE (SIDEBAR) ---
 with st.sidebar:
