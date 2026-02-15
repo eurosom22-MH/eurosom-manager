@@ -7,7 +7,6 @@ from datetime import datetime
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="EUROSOM Manager", layout="wide")
 
-# Style épuré Bordeaux & Gris
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -21,7 +20,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. FONCTIONS DE SÉCURITÉ ---
+# --- 2. FONCTIONS ---
 def format_euro(valeur):
     return f"{valeur:,.0f} €".replace(",", " ")
 
@@ -39,13 +38,13 @@ def load_data():
     except:
         return pd.DataFrame()
 
-# --- 3. TRAITEMENT DES DONNÉES ---
+# --- 3. CHARGEMENT ET TRAITEMENT ---
 df_raw = load_data()
 
 if not df_raw.empty:
     df = df_raw.copy()
     
-    # Identification des colonnes dynamiques
+    # Identification des colonnes
     c_client = get_col(df, "CLIENT") or "CLIENT"
     c_ville = get_col(df, "VILLE") or "VILLE"
     c_mt = get_col(df, "MONTANT") or "MONTANT HT COMMANDE"
@@ -55,14 +54,17 @@ if not df_raw.empty:
     c_comm = get_col(df, "COMMERCIAL") or "COMMERCIAL"
     c_cp = get_col(df, "CP") or "CP"
     c_h = get_col(df, "HEURE") or "NOMBRE HEURES"
+    c_alerte = get_col(df, "ALERTE") or "ALERTE"
+    c_anticip = get_col(df, "ANTICIPATION STOCK") or "ANTICIPATION STOCK"
+    c_type_delai = get_col(df, "TYPE DÉLAI") or "TYPE DÉLAI"
 
-    # Nettoyage numérique
+    # Nettoyage
     def to_f(x):
         try: return float(str(x).replace('€','').replace(' ','').replace(',','.'))
         except: return 0.0
 
     df['MT_NUM'] = df[c_mt].apply(to_f) if c_mt in df.columns else 0.0
-    df['H_NUM'] = pd.to_numeric(df[c_h], errors='coerce').fillna(0) if c_h in df.columns else 0.0
+    df['H_NUM'] = pd.to_numeric(df[c_h], errors='coerce').fillna(0)
     df['D_CMD'] = pd.to_datetime(df[c_date_c], errors='coerce', dayfirst=True)
     df['D_POSE'] = pd.to_datetime(df[c_date_p], errors='coerce', dayfirst=True)
     df['M_CMD'] = df['D_CMD'].dt.strftime('%Y-%m')
@@ -73,12 +75,11 @@ if not df_raw.empty:
     st.title("🛡️ EUROSOM Manager")
     tab1, tab2, tab3 = st.tabs(["📊 DASHBOARD", "✍️ SAISIE COMMANDE", "💼 ESPACE COMMERCIAUX"])
 
-    # --- ONGLET 1 : DASHBOARD ---
     with tab1:
         c1, c2, c3 = st.columns(3)
         c1.metric("CA TOTAL", format_euro(df['MT_NUM'].sum()))
         c2.metric("COMMANDES", len(df))
-        c3.metric("HEURES POSE TOTALES", f"{df['H_NUM'].sum():.0f} h")
+        c3.metric("HEURES POSE", f"{df['H_NUM'].sum():.0f} h")
         
         st.divider()
         g1, g2 = st.columns(2)
@@ -87,10 +88,6 @@ if not df_raw.empty:
             fig1 = px.bar(df.groupby('M_CMD')['MT_NUM'].sum().reset_index(), x='M_CMD', y='MT_NUM', color_discrete_sequence=['#800020'])
             fig1.update_traces(texttemplate='%{y:,.0f} €', textposition='outside')
             st.plotly_chart(fig1, use_container_width=True)
-            
-            st.subheader("🌍 Répartition par Dép.")
-            fig_geo = px.pie(df.groupby('DEPT')['MT_NUM'].sum().reset_index(), values='MT_NUM', names='DEPT', hole=0.5, color_discrete_sequence=px.colors.sequential.Reds)
-            st.plotly_chart(fig_geo, use_container_width=True)
 
         with g2:
             st.subheader("🎯 Objectif Facturation")
@@ -98,103 +95,61 @@ if not df_raw.empty:
             fig2.update_traces(texttemplate='%{y:,.0f} €', textposition='outside')
             st.plotly_chart(fig2, use_container_width=True)
 
-            st.subheader("⏳ Charge de Pose (Heures)")
-            fig3 = px.line(df.groupby('M_POSE')['H_NUM'].sum().reset_index(), x='M_POSE', y='H_NUM', markers=True)
-            st.plotly_chart(fig3, use_container_width=True)
-
-    # --- ONGLET 2 : SAISIE ---
     with tab2:
         st.subheader("📝 Nouvelle Commande")
         with st.form("form_saisie", clear_on_submit=True):
             f1, f2, f3 = st.columns(3)
-            # Identification
             n_cde = f1.text_input("N° Commande")
-            n_cli = f1.text_input("Nom Client")
+            n_cli = f1.text_input("Client")
             n_ville = f1.text_input("Ville")
             n_cp = f1.text_input("CP")
-            # Dates
             n_date_c = f2.date_input("Date Commande")
             n_date_p = f2.date_input("Date Pose Prévue")
             n_type_delai = f2.selectbox("Type de délai", ["ESTIMÉ", "FIXÉ", "À CONFIRMER"])
             n_h = f2.number_input("Heures de pose", min_value=0.0)
-            # Montant & Statuts
             n_mt = f3.number_input("Montant HT", min_value=0)
             n_comm = f3.selectbox("Commercial", sorted(df[c_comm].dropna().unique().tolist()))
             n_statut = f3.selectbox("Statut Mesures", ["EN ATTENTE", "REÇUES", "À PRENDRE"])
-            n_obs = f3.text_area("Observations")
+            n_anticip_val = f3.selectbox("Anticipation Stock ?", ["NON", "OUI"])
             
-            if st.form_submit_button("💾 ENREGISTRER DANS LE GOOGLE SHEET"):
+            if st.form_submit_button("💾 ENREGISTRER"):
                 try:
                     new_row = pd.DataFrame([{
                         c_date_c: n_date_c.strftime('%d/%m/%Y'), c_client: n_cli, c_ville: n_ville,
                         c_cp: n_cp, c_mt: n_mt, c_comm: n_comm, c_date_p: n_date_p.strftime('%d/%m/%Y'),
-                        "TYPE DÉLAI": n_type_delai, c_statut: n_statut, c_h: n_h,
-                        "OBSERVATIONS": n_obs, "NUMÉRO DE COMMANDE": n_cde
+                        c_type_delai: n_type_delai, c_statut: n_statut, c_h: n_h,
+                        c_anticip: n_anticip_val, "NUMÉRO DE COMMANDE": n_cde
                     }])
                     conn = st.connection("gsheets", type=GSheetsConnection)
-                    current_df = conn.read(ttl=0)
-                    updated_df = pd.concat([current_df, new_row], ignore_index=True)
+                    updated_df = pd.concat([conn.read(ttl=0), new_row], ignore_index=True)
                     conn.update(worksheet="SUIVI COMMANDES EN COURS", data=updated_df)
                     st.cache_data.clear()
                     st.success("✅ Enregistré !")
-                    st.balloons()
                 except Exception as e:
                     st.error(f"Erreur : {e}")
 
-    # --- ONGLET 3 : COMMERCIAUX ---
-with tab3:
-        st.subheader("💼 Pilotage des Commandes & Anticipation Stock")
+    with tab3:
+        st.subheader("💼 Pilotage par Commercial")
+        sel_c = st.selectbox("Filtrer par Commercial", ["Tous"] + sorted(df[c_comm].dropna().unique().tolist()))
+        df_c = df if sel_c == "Tous" else df[df[c_comm] == sel_c]
         
-        # 1. FILTRE COMMERCIAL
-        liste_commerciaux = ["Tous"] + sorted(df[c_comm].dropna().unique().tolist())
-        sel_c = st.selectbox("Filtrer par Commercial", liste_commerciaux)
-        df_comm = df if sel_c == "Tous" else df[df[c_comm] == sel_c]
-
-        # Identification des colonnes
-        c_alerte = get_col(df, "ALERTE") or "ALERTE"
-        c_anticip = get_col(df, "ANTICIPATION STOCK") or "ANTICIPATION STOCK"
-        
-        # Calcul pour l'anticipation (Aujourd'hui + 7 semaines)
         aujourdhui = pd.Timestamp.now().normalize()
-        limite_7_semaines = aujourdhui + pd.Timedelta(weeks=7)
+        limite_7s = aujourdhui + pd.Timedelta(weeks=7)
 
-        st.divider()
+        # 1. URGENCES (Formule Alerte)
+        st.markdown("### 🔴 URGENCES : MESURES")
+        df_u = df_c[df_c[c_alerte].astype(str).str.contains("URGENT", na=False)]
+        st.dataframe(df_u[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
 
-        # --- LISTE 1 : LES URGENCES (Basée sur votre formule ALERTE) ---
-        st.markdown("### 🔴 URGENCES : MESURES À PRENDRE")
-        df_urgent = df_comm[df_comm[c_alerte].astype(str).str.contains("URGENT", na=False)]
-        if not df_urgent.empty:
-            st.dataframe(df_urgent[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
-        else:
-            st.success("Aucune mesure urgente.")
+        # 2. ANTICIPATION 7 SEMAINES
+        st.markdown("### 📦 ANTICIPATION STOCK (Pose < 7 sem + OUI)")
+        mask_a = (df_c[c_anticip].astype(str).str.upper() == "OUI") & (df_c['D_POSE'] <= limite_7s) & (df_c['D_POSE'] >= aujourdhui)
+        st.dataframe(df_c[mask_a][[c_client, c_ville, c_date_p, c_anticip]], use_container_width=True)
 
-        st.divider()
-
-        # --- LISTE 2 : ANTICIPATION STOCK (Règle des 7 semaines) ---
-        st.markdown("### 📦 PRÉPARATION : ANTICIPATION STOCK (Pose < 7 semaines)")
-        # On filtre : Anticipation = OUI ET Date de pose dans les 7 prochaines semaines
-        mask_anticip = (df_comm[c_anticip].astype(str).str.upper() == "OUI") & \
-                       (df_comm['D_POSE'] <= limite_7_semaines) & \
-                       (df_comm['D_POSE'] >= aujourdhui)
-        
-        df_stock = df_comm[mask_anticip]
-        if not df_stock.empty:
-            st.info(f"Il y a {len(df_stock)} dossier(s) à préparer pour le stock (Pose prévue avant le {limite_7_semaines.strftime('%d/%m/%Y')})")
-            st.dataframe(df_stock[[c_client, c_ville, c_date_p, c_anticip]], use_container_width=True)
-        else:
-            st.write("Aucun dossier en anticipation stock pour les 7 prochaines semaines.")
-
-        st.divider()
-
-        # --- LISTE 3 : SUIVI GÉNÉRAL (Retard, Prévision, Horizon) ---
-        st.markdown("### 📋 SUIVI DES AUTRES DOSSIERS (Selon ALERTE)")
-        statuts_suivi = ["RETARD", "À PRÉVOIR", "HORIZON LOINTAIN"]
-        df_suivi = df_comm[df_comm[c_alerte].astype(str).str.contains('|'.join(statuts_suivi), na=False)]
-        
-        if not df_suivi.empty:
-            st.dataframe(df_suivi[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
-        else:
-            st.write("Aucun autre dossier à suivre dans ces catégories.")
+        # 3. SUIVI GÉNÉRAL (Retard, Prévoir, Horizon)
+        st.markdown("### 📋 SUIVI GÉNÉRAL")
+        df_s = df_c[df_c[c_alerte].astype(str).str.contains("RETARD|PRÉVOIR|HORIZON", na=False)]
+        st.dataframe(df_s[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
 
 else:
-    st.error("Données inaccessibles.")
+    st.error("Données inaccessibles.")error("Données inaccessibles.")
