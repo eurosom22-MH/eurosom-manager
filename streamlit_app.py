@@ -142,52 +142,59 @@ if not df_raw.empty:
                     st.error(f"Erreur : {e}")
 
     # --- ONGLET 3 : COMMERCIAUX ---
-    with tab3:
-        st.subheader("💼 Pilotage des Mesures & Alertes")
+with tab3:
+        st.subheader("💼 Pilotage des Commandes & Anticipation Stock")
         
         # 1. FILTRE COMMERCIAL
         liste_commerciaux = ["Tous"] + sorted(df[c_comm].dropna().unique().tolist())
         sel_c = st.selectbox("Filtrer par Commercial", liste_commerciaux)
         df_comm = df if sel_c == "Tous" else df[df[c_comm] == sel_c]
 
-        # Identification de la colonne ALERTE
+        # Identification des colonnes
         c_alerte = get_col(df, "ALERTE") or "ALERTE"
+        c_anticip = get_col(df, "ANTICIPATION STOCK") or "ANTICIPATION STOCK"
+        
+        # Calcul pour l'anticipation (Aujourd'hui + 7 semaines)
+        aujourdhui = pd.Timestamp.now().normalize()
+        limite_7_semaines = aujourdhui + pd.Timedelta(weeks=7)
 
-        if c_alerte in df_comm.columns:
-            st.divider()
+        st.divider()
 
-            # --- LISTE 1 : LES URGENCES ABSOLUES ---
-            st.markdown("### 🔴 URGENCES : MESURES À PRENDRE")
-            # On filtre exactement sur le texte généré par votre formule
-            df_urgent = df_comm[df_comm[c_alerte].astype(str).str.contains("URGENT", na=False)]
-            
-            if not df_urgent.empty:
-                st.dataframe(df_urgent[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
-            else:
-                st.success("Aucune mesure urgente pour le moment. Beau travail !")
-
-            st.divider()
-
-            # --- LISTE 2 : SUIVI ET ANTICIPATION ---
-            st.markdown("### 📋 SUIVI DES AUTRES DOSSIERS (Retard, Prévision, Horizon)")
-            # On cherche les 3 autres statuts demandés
-            statuts_suivi = ["RETARD", "À PRÉVOIR", "HORIZON LOINTAIN"]
-            
-            # Filtre intelligent qui cherche si l'un des mots-clés est dans la colonne Alerte
-            df_suivi = df_comm[df_comm[c_alerte].astype(str).str.contains('|'.join(statuts_suivi), na=False)]
-            
-            if not df_suivi.empty:
-                # On colore le tableau pour que ce soit lisible
-                st.dataframe(df_suivi[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
-            else:
-                st.info("Aucun autre dossier en attente dans ces catégories.")
-
-            # --- LISTE 3 : ATTENTE PLANIFICATION ---
-            if st.checkbox("Afficher les dossiers 'Attente Planif'"):
-                df_planif = df_comm[df_comm[c_alerte].astype(str).str.contains("ATTENTE PLANIF", na=False)]
-                st.dataframe(df_planif[[c_client, c_ville, c_comm, c_alerte]], use_container_width=True)
+        # --- LISTE 1 : LES URGENCES (Basée sur votre formule ALERTE) ---
+        st.markdown("### 🔴 URGENCES : MESURES À PRENDRE")
+        df_urgent = df_comm[df_comm[c_alerte].astype(str).str.contains("URGENT", na=False)]
+        if not df_urgent.empty:
+            st.dataframe(df_urgent[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
         else:
-            st.error(f"La colonne '{c_alerte}' n'a pas été trouvée dans votre fichier. Vérifiez son nom exact.")
+            st.success("Aucune mesure urgente.")
+
+        st.divider()
+
+        # --- LISTE 2 : ANTICIPATION STOCK (Règle des 7 semaines) ---
+        st.markdown("### 📦 PRÉPARATION : ANTICIPATION STOCK (Pose < 7 semaines)")
+        # On filtre : Anticipation = OUI ET Date de pose dans les 7 prochaines semaines
+        mask_anticip = (df_comm[c_anticip].astype(str).str.upper() == "OUI") & \
+                       (df_comm['D_POSE'] <= limite_7_semaines) & \
+                       (df_comm['D_POSE'] >= aujourdhui)
+        
+        df_stock = df_comm[mask_anticip]
+        if not df_stock.empty:
+            st.info(f"Il y a {len(df_stock)} dossier(s) à préparer pour le stock (Pose prévue avant le {limite_7_semaines.strftime('%d/%m/%Y')})")
+            st.dataframe(df_stock[[c_client, c_ville, c_date_p, c_anticip]], use_container_width=True)
+        else:
+            st.write("Aucun dossier en anticipation stock pour les 7 prochaines semaines.")
+
+        st.divider()
+
+        # --- LISTE 3 : SUIVI GÉNÉRAL (Retard, Prévision, Horizon) ---
+        st.markdown("### 📋 SUIVI DES AUTRES DOSSIERS (Selon ALERTE)")
+        statuts_suivi = ["RETARD", "À PRÉVOIR", "HORIZON LOINTAIN"]
+        df_suivi = df_comm[df_comm[c_alerte].astype(str).str.contains('|'.join(statuts_suivi), na=False)]
+        
+        if not df_suivi.empty:
+            st.dataframe(df_suivi[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
+        else:
+            st.write("Aucun autre dossier à suivre dans ces catégories.")
 
 else:
     st.error("Données inaccessibles.")
