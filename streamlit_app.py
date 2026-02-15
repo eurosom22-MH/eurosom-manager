@@ -143,64 +143,51 @@ if not df_raw.empty:
 
     # --- ONGLET 3 : COMMERCIAUX ---
     with tab3:
-        st.subheader("💼 Pilotage des Commandes par Commercial")
+        st.subheader("💼 Pilotage des Mesures & Alertes")
         
         # 1. FILTRE COMMERCIAL
         liste_commerciaux = ["Tous"] + sorted(df[c_comm].dropna().unique().tolist())
         sel_c = st.selectbox("Filtrer par Commercial", liste_commerciaux)
         df_comm = df if sel_c == "Tous" else df[df[c_comm] == sel_c]
 
-        # Préparation des dates pour les calculs (Aujourd'hui + X semaines)
-        aujourdhui = pd.Timestamp.now().normalize()
-        dans_2_semaines = aujourdhui + pd.Timedelta(weeks=2)
-        dans_7_semaines = aujourdhui + pd.Timedelta(weeks=7)
+        # Identification de la colonne ALERTE
+        c_alerte = get_col(df, "ALERTE") or "ALERTE"
 
-        # Identification des colonnes spécifiques
-        c_anticip = get_col(df, "ANTICIPATION STOCK") or "ANTICIPATION STOCK"
-        c_type_delai = get_col(df, "TYPE DÉLAI") or "TYPE DÉLAI"
+        if c_alerte in df_comm.columns:
+            st.divider()
 
-        st.divider()
-
-        # --- LISTE 1 : ANTICIPATION NON (Alerte 2 semaines) ---
-        st.markdown(f"### 🛑 Urgent : Pose < 2 semaines (Sans Anticipation)")
-        # Condition : Date de pose arrive bientôt ET anticipation est NON
-        mask1 = (df_comm['D_POSE'] <= dans_2_semaines) & \
-                (df_comm[c_anticip].astype(str).str.upper() == "NON") & \
-                (df_comm['D_POSE'] >= aujourdhui)
-        
-        df_liste1 = df_comm[mask1]
-        if not df_liste1.empty:
-            st.dataframe(df_liste1[[c_date_p, c_client, c_ville, c_mt]], use_container_width=True)
-        else:
-            st.info("Aucune commande urgente sans anticipation pour le moment.")
-
-        # --- LISTE 2 : ANTICIPATION OUI (Alerte 7 semaines) ---
-        st.markdown(f"### 📦 Préparation : Pose < 7 semaines (Avec Anticipation)")
-        # Condition : Date de pose arrive dans 7 semaines ET anticipation est OUI
-        mask2 = (df_comm['D_POSE'] <= dans_7_semaines) & \
-                (df_comm[c_anticip].astype(str).str.upper() == "OUI") & \
-                (df_comm['D_POSE'] >= aujourdhui)
-        
-        df_liste2 = df_comm[mask2]
-        if not df_liste2.empty:
-            st.success(f"{len(df_liste2)} commande(s) à préparer pour le stock.")
-            st.dataframe(df_liste2[[c_date_p, c_client, c_ville, c_mt]], use_container_width=True)
-        else:
-            st.info("Aucun dossier avec anticipation stock à préparer.")
-
-        # --- LISTE 3 : DÉLAI NON FIXÉ ---
-        st.markdown(f"### ⏳ Dossiers en attente (Délai non fixé)")
-        # Condition : Le type de délai n'est pas "FIXÉ"
-        if c_type_delai in df_comm.columns:
-            mask3 = (df_comm[c_type_delai].astype(str).str.upper() != "FIXÉ")
-            df_liste3 = df_comm[mask3]
-            if not df_liste3.empty:
-                st.warning(f"{len(df_liste3)} dossier(s) sans date de pose définitive.")
-                st.dataframe(df_liste3[[c_client, c_ville, c_comm, c_statut]], use_container_width=True)
+            # --- LISTE 1 : LES URGENCES ABSOLUES ---
+            st.markdown("### 🔴 URGENCES : MESURES À PRENDRE")
+            # On filtre exactement sur le texte généré par votre formule
+            df_urgent = df_comm[df_comm[c_alerte].astype(str).str.contains("URGENT", na=False)]
+            
+            if not df_urgent.empty:
+                st.dataframe(df_urgent[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
             else:
-                st.write("Tous les délais sont fixés !")
+                st.success("Aucune mesure urgente pour le moment. Beau travail !")
+
+            st.divider()
+
+            # --- LISTE 2 : SUIVI ET ANTICIPATION ---
+            st.markdown("### 📋 SUIVI DES AUTRES DOSSIERS (Retard, Prévision, Horizon)")
+            # On cherche les 3 autres statuts demandés
+            statuts_suivi = ["RETARD", "À PRÉVOIR", "HORIZON LOINTAIN"]
+            
+            # Filtre intelligent qui cherche si l'un des mots-clés est dans la colonne Alerte
+            df_suivi = df_comm[df_comm[c_alerte].astype(str).str.contains('|'.join(statuts_suivi), na=False)]
+            
+            if not df_suivi.empty:
+                # On colore le tableau pour que ce soit lisible
+                st.dataframe(df_suivi[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
+            else:
+                st.info("Aucun autre dossier en attente dans ces catégories.")
+
+            # --- LISTE 3 : ATTENTE PLANIFICATION ---
+            if st.checkbox("Afficher les dossiers 'Attente Planif'"):
+                df_planif = df_comm[df_comm[c_alerte].astype(str).str.contains("ATTENTE PLANIF", na=False)]
+                st.dataframe(df_planif[[c_client, c_ville, c_comm, c_alerte]], use_container_width=True)
         else:
-            st.info("La colonne 'TYPE DÉLAI' n'a pas été trouvée pour cette liste.")
+            st.error(f"La colonne '{c_alerte}' n'a pas été trouvée dans votre fichier. Vérifiez son nom exact.")
 
 else:
     st.error("Données inaccessibles.")
