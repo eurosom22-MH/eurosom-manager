@@ -152,4 +152,4 @@ if not df_raw.empty:
         st.dataframe(df_s[[c_client, c_ville, c_date_p, c_alerte]], use_container_width=True)
 
 else:
-    st.error("Données inaccessibles.")error("Données inaccessibles.")
+    st.error("Données inaccessibles.")
